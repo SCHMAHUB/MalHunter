@@ -1,0 +1,1 @@
+En esta carpeta se encontraran las clases que complementan calculos de las funciones principales del programa.
