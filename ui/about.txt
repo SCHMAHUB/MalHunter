@@ -1,0 +1,1 @@
+En esta carpeta se encontrara la clase que define la UI en su totalidad, utilizando JAVA FX
