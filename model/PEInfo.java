@@ -9,9 +9,9 @@ public class PEInfo { // Aquesta classe agrupa tota la informació extreta d’u
     private File file;
     private String fileName;
     private long fileSize;
-    private String md5;
-    private String sha1;
-    private String sha256;
+    private String md5; // El MD5 serveix per comprovar canvis en els fitxers
+    private String sha1; // El SHA-1 serveix per comprovar canvis en els fitxers
+    private String sha256; // El SHA-256 serveix per comprovar canvis en els fitxers
     private DOSHeader dosHeader;
     private PEHeader peHeader;
     private List<Section> sections;
