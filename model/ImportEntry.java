@@ -7,111 +7,119 @@ import java.util.List;
 
 public class ImportEntry {
 
+    // Atributs
     private String dllName;
     private List<FunctionInfo> functions;
     private boolean isSuspicious;
     private String category;
     private List<String> ttps;
 
+    // Constructor
     public ImportEntry(String dllName) {
         this.dllName = dllName;
         this.functions = new ArrayList<>();
         this.ttps = new ArrayList<>();
     }
 
+    // Getters i setters
     public String getDllName() {
-        return dllName; // Return del nom
+        return dllName;
     }
 
     public List<FunctionInfo> getFunctions() {
-        return functions; // Return de funcions importades
+        return functions;
     }
 
     public void addFunction(FunctionInfo function) {
-        this.functions.add(function); // Afegeix funció a la DLL
+        this.functions.add(function);
     }
 
     public boolean isSuspicious() {
-        return isSuspicious; // Diu si la DLL és sospitosa
+        return isSuspicious; 
     }
 
     public void setSuspicious(boolean suspicious) {
-        isSuspicious = suspicious; // Posa o treu la DLL de sospitosa
+        isSuspicious = suspicious;
     }
 
     public String getCategory() {
-        return category; // Return categoria de la DLL
+        return category;
     }
 
     public void setCategory(String category) {
-        this.category = category; // Assigna categoria
+        this.category = category; 
     }
 
     public List<String> getTtps() {
-        return ttps; // Return llista de TTPs
+        return ttps;
     }
 
     public void addTtp(String ttp) {
-        this.ttps.add(ttp); // Afegeix una TTP
+        this.ttps.add(ttp);
     }
 
-    
-    public int getSuspiciousFunctionCount() { // Return de numero de funcions sospitoses
-        return (int) functions.stream() // Convertit en stream per a poder filtrar
-                .filter(FunctionInfo::isSuspicious) // Filtra si es sospitos
-                .count(); // Count per saber el numero
+    // Return de numero de funcions sospitoses
+    public int getSuspiciousFunctionCount() {
+        return (int) functions.stream()
+                .filter(FunctionInfo::isSuspicious)
+                .count();
     }
 
+    // Classe interna
     public static class FunctionInfo {
 
+        // Atributs
         private String name;
         private boolean isSuspicious;
         private String description;
         private String mitreTactic;
         private String mitreTechnique;
-        
-        public FunctionInfo(String name) { // Constructor
+
+        // Constructor
+        public FunctionInfo(String name) { 
             this.name = name;
         }
 
+        // Getters i setters
         public String getName() {
-            return name; // Return nom
+            return name;
         }
 
         public boolean isSuspicious() {
-            return isSuspicious; // DIu si es sospitos
+            return isSuspicious;
         }
 
         public void setSuspicious(boolean suspicious) {
-            isSuspicious = suspicious; // Posa o treu la funció de sospitosa
+            isSuspicious = suspicious;
         }
 
         public String getDescription() {
-            return description; // Dona la descripció
+            return description;
         }
 
         public void setDescription(String description) {
-            this.description = description; // Assigna descripció
+            this.description = description;
         }
 
         public String getMitreTactic() {
-            return mitreTactic; // Return la tàctica MITRE associada
+            return mitreTactic;
         }
 
         public void setMitreTactic(String mitreTactic) {
-            this.mitreTactic = mitreTactic; // Assigna tàctica MITRE
+            this.mitreTactic = mitreTactic;
         }
 
         public String getMitreTechnique() {
-            return mitreTechnique; // Return tècnica MITRE
+            return mitreTechnique;
         }
 
         public void setMitreTechnique(String mitreTechnique) {
-            this.mitreTechnique = mitreTechnique; // Assigna tècnica MITRE
+            this.mitreTechnique = mitreTechnique;
         }
 
+        // Return del nom de la funció i si és sospitosa
         @Override
-        public String toString() { // Return del nom de la funció i diu si és sospitosa
+        public String toString() {
             return name + (isSuspicious ? " [SUSPICIOUS]" : "");
         }
     }
