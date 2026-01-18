@@ -4,6 +4,7 @@ package malware.model;
 
 public class PEHeader {
 
+    // Atributs
     private long signature;
     private int machine;
     private int numberOfSections;
@@ -14,84 +15,87 @@ public class PEHeader {
     private long sizeOfCode;
     private long sizeOfImage;
 
+    // Getters i setters
     public long getSignature() {
-        return signature; // Return de la signatura
+        return signature;
     }
 
     public void setSignature(long signature) {
-        this.signature = signature; // Assigna la signatura
+        this.signature = signature;
     }
 
     public int getMachine() {
-        return machine; // Return arquitectura
+        return machine;
     }
 
     public void setMachine(int machine) {
-        this.machine = machine; // Assigna arquitectura
+        this.machine = machine;
     }
 
     public int getNumberOfSections() {
-        return numberOfSections; // Return nombre de seccions
+        return numberOfSections;
     }
 
     public void setNumberOfSections(int numberOfSections) {
-        this.numberOfSections = numberOfSections; // Assigna seccions
+        this.numberOfSections = numberOfSections;
     }
 
     public long getTimestamp() {
-        return timestamp; // Return data de compilació
+        return timestamp;
     }
 
     public void setTimestamp(long timestamp) {
-        this.timestamp = timestamp; // Assigna timestamp
+        this.timestamp = timestamp;
     }
 
     public long getEntryPoint() {
-        return entryPoint; // Return punt d’entrada
+        return entryPoint;
     }
 
     public void setEntryPoint(long entryPoint) {
-        this.entryPoint = entryPoint; // Assigna punt d’entrada
+        this.entryPoint = entryPoint;
     }
 
     public int getOptionalMagic() {
-        return optionalMagic; // Return tipus PE
+        return optionalMagic;
     }
 
     public void setOptionalMagic(int optionalMagic) {
-        this.optionalMagic = optionalMagic; // Assigna tipus PE
+        this.optionalMagic = optionalMagic;
     }
 
     public long getImageBase() {
-        return imageBase; // Return image base
+        return imageBase;
     }
 
     public void setImageBase(long imageBase) {
-        this.imageBase = imageBase; // Assigna image base
+        this.imageBase = imageBase;
     }
 
     public long getSizeOfCode() {
-        return sizeOfCode; // Return mida del codi
+        return sizeOfCode;
     }
 
     public void setSizeOfCode(long sizeOfCode) {
-        this.sizeOfCode = sizeOfCode; // Assigna mida del codi
+        this.sizeOfCode = sizeOfCode;
     }
 
     public long getSizeOfImage() {
-        return sizeOfImage; // Return mida de la imatge
+        return sizeOfImage;
     }
 
     public void setSizeOfImage(long sizeOfImage) {
-        this.sizeOfImage = sizeOfImage; // Assigna mida de la imatge
+        this.sizeOfImage = sizeOfImage;
     }
 
+    // Validació
     public boolean isValid() {
-        return signature == 0x00004550L; // Comprova si el PE és vàlid
+        return signature == 0x00004550L;
     }
 
+    // Informació general del PE
     public String getArchitecture() {
-        return switch (machine) { // Detecta l’arquitectura (tipus de CPU per a la qual s’ha compilat el programa)
+        return switch (machine) {
             case 0x14C -> "x86 (32-bit)";
             case 0x8664 -> "x64 (64-bit)";
             case 0x1C0 -> "ARM";
@@ -101,10 +105,10 @@ public class PEHeader {
     }
 
     public boolean is64Bit() {
-        return optionalMagic == 0x20B; // Diu si el PE és de 64 bits
+        return optionalMagic == 0x20B;
     }
 
     public String getType() {
-        return is64Bit() ? "PE32+ (64-bit)" : "PE32 (32-bit)"; // Tipus de PE, comprovant si es de 64 amb el boolean anterior i si no ho és ho marca com a 32-bit
+        return is64Bit() ? "PE32+ (64-bit)" : "PE32 (32-bit)";
     }
 }
