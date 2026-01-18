@@ -119,14 +119,19 @@ MalHunter/
 
 - **Java Development Kit (JDK) 17+**
 - **Apache Maven 3.6+**
+```bash
+sudo apt install maven 
+```
 
 ### Compilación
 
 ```bash
 # Clonar repositorio (si aplica)
-git clone <repository-url>
+git clone https://github.com/schmahub/MalHunter.git
 cd MalHunter
-java MalwareAnalyzerApp.java
+mvn clean package
+java -jar target/analyzer-4.0.jar
+
 ```
 
 ---
@@ -156,26 +161,103 @@ java MalwareAnalyzerApp.java
 **Función:** Parseo de estructura PE y cálculo de hashes.
 
 ```java
-public PEInfo analyze(File file) throws IOException {
-    try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
-        // 1. Calcular hashes criptográficos
-        calculateHashes();
+// Metodo para parsear estructuras PE
+    private static void parseHeaders(PEInfo peInfo) throws IOException {
+        try (RandomAccessFile raf = new RandomAccessFile(peInfo.getFile(), "r")) {
+            raf.seek(0);
+            int magic = BinaryReader.readUInt16(raf);
+            raf.seek(0x3C);
+            long peOffset = BinaryReader.readUInt32(raf);
 
-        // 2. Parsear cabecera DOS (MZ)
-        parseDOSHeader(raf);
+            DOSHeader dosHeader = new DOSHeader(magic, peOffset);
+            peInfo.setDosHeader(dosHeader);
 
-        // 3. Parsear cabecera PE
-        parsePEHeader(raf);
+            if (!dosHeader.isValid()) {
+                throw new IOException("Invalid DOS signature");
+            }
 
-        // 4. Extraer secciones (.text, .data, etc.)
-        parseSections(raf);
+            raf.seek(peOffset);
+            long peSignature = BinaryReader.readUInt32(raf);
 
-        // 5. Calcular entropía global
-        peInfo.setEntropy(EntropyCalculator.calculate(fileBytes));
+            PEHeader peHeader = new PEHeader();
+            peHeader.setSignature(peSignature);
 
-        return peInfo;
+            if (!peHeader.isValid()) {
+                throw new IOException("Invalid PE signature");
+            }
+
+            peHeader.setMachine(BinaryReader.readUInt16(raf));
+            peHeader.setNumberOfSections(BinaryReader.readUInt16(raf));
+            peHeader.setTimestamp(BinaryReader.readUInt32(raf));
+            raf.skipBytes(8); // PointerToSymbolTable + NumberOfSymbols
+            int sizeOfOptionalHeader = BinaryReader.readUInt16(raf);
+            raf.skipBytes(2); // Characteristics
+
+            if (sizeOfOptionalHeader > 0) {
+                int optMagic = BinaryReader.readUInt16(raf);
+                peHeader.setOptionalMagic(optMagic);
+                boolean is64bit = (optMagic == 0x20B);
+
+                raf.skipBytes(14); // Linker version, sizes
+                peHeader.setEntryPoint(BinaryReader.readUInt32(raf));
+                raf.skipBytes(4); // BaseOfCode
+
+                if (!is64bit) {
+                    raf.skipBytes(4); // BaseOfData
+                    peHeader.setImageBase(BinaryReader.readUInt32(raf));
+                } else {
+                    peHeader.setImageBase(BinaryReader.readUInt64(raf));
+                }
+
+                raf.skipBytes(8); // Section/File alignment
+                raf.skipBytes(16); // Versions
+                peHeader.setSizeOfImage(BinaryReader.readUInt32(raf));
+                raf.skipBytes(4); // SizeOfHeaders
+            }
+
+            peInfo.setPeHeader(peHeader);
+
+            parseSections(raf, peInfo, peOffset, sizeOfOptionalHeader);
+        }
     }
-}
+
+    // Metodo para parsear secciones
+    private static void parseSections(RandomAccessFile raf, PEInfo peInfo,
+                                      long peOffset, int sizeOfOptionalHeader) throws IOException {
+        int numSections = peInfo.getPeHeader().getNumberOfSections();
+        long sectionsOffset = peOffset + 24 + sizeOfOptionalHeader;
+
+        for (int i = 0; i < numSections; i++) {
+            raf.seek(sectionsOffset + (i * 40));
+
+            String name = BinaryReader.readFixedString(raf, 8);
+            Section section = new Section(name);
+
+            section.setVirtualSize(BinaryReader.readUInt32(raf));
+            section.setVirtualAddress(BinaryReader.readUInt32(raf));
+            section.setRawSize(BinaryReader.readUInt32(raf));
+            section.setRawPointer(BinaryReader.readUInt32(raf));
+
+            raf.skipBytes(12);
+            section.setCharacteristics(BinaryReader.readUInt32(raf));
+
+            if (section.getRawSize() > 0 && section.getRawPointer() > 0) {
+                long currentPos = raf.getFilePointer();
+                raf.seek(section.getRawPointer());
+
+                int dataSize = (int) Math.min(section.getRawSize(), 1024 * 1024); // Máx 1MB
+                byte[] sectionData = BinaryReader.readBytes(raf, dataSize);
+                section.setData(sectionData);
+                section.setEntropy(EntropyCalculator.calculate(sectionData));
+                section.setCompressionRatio(CompressionUtil.calculateCompressionRatio(sectionData));
+
+                raf.seek(currentPos);
+            }
+
+            peInfo.addSection(section);
+        }
+    }
+
 ```
 
 
@@ -192,22 +274,57 @@ public PEInfo analyze(File file) throws IOException {
 **Función:** Análisis de importaciones y mapeo a MITRE ATT&CK.
 
 ```java
-public List<ImportEntry> analyzeImports(PEInfo peInfo, byte[] fileBytes) {
-    // Base: 14 DLLs con funciones categorizadas
-    Map<String, Map<String, String>> dllCapabilities = buildDllCapabilities();
+// Analizador de los imports
+public class ImportAnalyzer {
 
-    // Detectar imports sospechosos
-    for (ImportEntry entry : entries) {
-        if (dllCapabilities.containsKey(dllName)) {
-            String category = categorizeFunction(funcName);
-            String[] mitre = getMitreTTP(funcName);
+    private static final Map<String, DLLCapability> DLL_CAPABILITIES = new HashMap<>();
 
-            functionInfo.setSuspicious(true);
-            functionInfo.setMitreTactic(mitre[0]);   // ej. "Defense Evasion"
-            functionInfo.setMitreTechnique(mitre[1]); // ej. "T1055"
+    static {
+        initializeCapabilities();
+    }
+
+    public static void analyze(PEInfo peInfo) throws IOException {
+        byte[] fileData = readFileBytes(peInfo.getFile());
+        String content = new String(fileData, StandardCharsets.ISO_8859_1);
+
+        // Buscar DLLs conocidas
+        for (Map.Entry<String, DLLCapability> entry : DLL_CAPABILITIES.entrySet()) {
+            String dllName = entry.getKey();
+            DLLCapability capability = entry.getValue();
+
+            if (content.toLowerCase().contains(dllName.toLowerCase())) {
+                ImportEntry importEntry = new ImportEntry(dllName);
+                importEntry.setCategory(capability.category);
+                importEntry.setSuspicious(capability.suspicious);
+
+                // Buscar funciones de esta DLL
+                for (FunctionCapability funcCap : capability.functions) {
+                    if (content.contains(funcCap.name)) {
+                        FunctionInfo funcInfo = new FunctionInfo(funcCap.name);
+                        funcInfo.setSuspicious(funcCap.suspicious);
+                        funcInfo.setDescription(funcCap.description);
+                        funcInfo.setMitreTactic(funcCap.mitreTactic);
+                        funcInfo.setMitreTechnique(funcCap.mitreTechnique);
+
+                        importEntry.addFunction(funcInfo);
+
+                        // Agregar TTP si es sospechoso
+                        if (funcCap.suspicious && funcCap.mitreTechnique != null) {
+                            String ttp = funcCap.mitreTactic + ": " + funcCap.mitreTechnique;
+                            if (!importEntry.getTtps().contains(ttp)) {
+                                importEntry.addTtp(ttp);
+                            }
+                        }
+                    }
+                }
+
+                if (!importEntry.getFunctions().isEmpty()) {
+                    peInfo.addImport(importEntry);
+                }
+            }
         }
     }
-}
+
 ```
 
 **Ejemplo de TTPs detectados:**
@@ -228,33 +345,82 @@ public List<ImportEntry> analyzeImports(PEInfo peInfo, byte[] fileBytes) {
 **Función:** Extracción de strings ASCII y Unicode.
 
 ```java
-public List<StringEntry> extractStrings(byte[] data) {
-    List<StringEntry> strings = new ArrayList<>();
+public class StringAnalyzer {
+    private static final int MIN_STRING_LENGTH = 4;
 
-    // 1. Extraer strings ASCII
-    strings.addAll(extractASCII(data));
+    // Metodo para analizar los strings en un archivo binario
+    public static void analyze(PEInfo peInfo) throws IOException {
+        byte[] fileData = readFileBytes(peInfo.getFile());
 
-    // 2. Extraer strings Unicode (UTF-16 LE)
-    strings.addAll(extractUnicode(data));
+        extractASCIIStrings(fileData, peInfo);
 
-    // 3. Eliminar duplicados
-    return deduplicateStrings(strings);
-}
+        extractUnicodeStrings(fileData, peInfo);
+    }
 
-private List<StringEntry> extractASCII(byte[] data) {
-    // Buscar secuencias de caracteres imprimibles (min. 4 chars)
-    for (int i = 0; i < data.length; i++) {
-        if (isPrintable(data[i])) {
-            StringBuilder sb = new StringBuilder();
-            while (i < data.length && isPrintable(data[i])) {
-                sb.append((char) data[i++]);
+    private static void extractASCIIStrings(byte[] data, PEInfo peInfo) {
+        StringBuilder current = new StringBuilder();
+        long startOffset = 0;
+
+        for (int i = 0; i < data.length; i++) {
+            byte b = data[i];
+
+            if (isPrintableASCII(b)) {
+                if (current.length() == 0) {
+                    startOffset = i;
+                }
+                current.append((char) b);
+            } else {
+                if (current.length() >= MIN_STRING_LENGTH) {
+                    peInfo.addString(new StringEntry(startOffset, current.toString(), "ASCII"));
+                }
+                current.setLength(0);
             }
-            if (sb.length() >= 4) {
-                strings.add(new StringEntry(offset, sb.toString(), "ASCII"));
+        }
+
+        if (current.length() >= MIN_STRING_LENGTH) {
+            peInfo.addString(new StringEntry(startOffset, current.toString(), "ASCII"));
+        }
+    }
+
+    private static void extractUnicodeStrings(byte[] data, PEInfo peInfo) {
+        StringBuilder current = new StringBuilder();
+        long startOffset = 0;
+
+        for (int i = 0; i < data.length - 1; i += 2) {
+            int lowByte = data[i] & 0xFF;
+            int highByte = data[i + 1] & 0xFF;
+
+            // Unicode UTF-16 LE: highByte debe ser 0 para caracteres ASCII
+            if (highByte == 0 && isPrintableASCII((byte) lowByte)) {
+                if (current.length() == 0) {
+                    startOffset = i;
+                }
+                current.append((char) lowByte);
+            } else {
+                if (current.length() >= MIN_STRING_LENGTH) {
+                    String str = current.toString();
+                    // Evitar duplicados con ASCII
+                    boolean isDuplicate = peInfo.getStrings().stream()
+                            .anyMatch(s -> s.getValue().equals(str));
+
+                    if (!isDuplicate) {
+                        peInfo.addString(new StringEntry(startOffset, str, "Unicode"));
+                    }
+                }
+                current.setLength(0);
+            }
+        }
+
+        if (current.length() >= MIN_STRING_LENGTH) {
+            String str = current.toString();
+            boolean isDuplicate = peInfo.getStrings().stream()
+                    .anyMatch(s -> s.getValue().equals(str));
+
+            if (!isDuplicate) {
+                peInfo.addString(new StringEntry(startOffset, str, "Unicode"));
             }
         }
     }
-}
 ```
 
 **Archivo:** `src/main/java/malware/analyzer/StringAnalyzer.java`
@@ -266,21 +432,29 @@ private List<StringEntry> extractASCII(byte[] data) {
 **Función:** Cálculo de entropía de Shannon para detección de cifrado.
 
 ```java
-public static double calculate(byte[] data) {
-    int[] freq = new int[256];
-    for (byte b : data) {
-        freq[b & 0xFF]++;
-    }
-
-    double entropy = 0.0;
-    for (int count : freq) {
-        if (count > 0) {
-            double p = (double) count / data.length;
-            entropy -= p * (Math.log(p) / Math.log(2));
+public static double calculate(byte[] data){
+        if(data == null || data.length == 0){
+            return 0.0;
         }
+        // Frequencia de cada valor de byte (0-255)
+        int[] frequency = new int[256];
+        for (byte b : data) {
+            frequency[b & 0xFF]++;
+        }
+        double entropy = 0.0;
+        int dataLength = data.length;
+
+        for (int count : frequency) {
+            if (count == 0){
+                continue;
+            }
+
+            double probability = (double) count / dataLength; // Al ser count y data lenght ints la division sera entre ints y la tenemos que convertir nosotros a double.
+            entropy -= probability * (Math.log(probability) / Math.log(2));
+        }
+
+        return entropy;
     }
-    return entropy; // Rango: 0.0 - 8.0 bits/byte
-}
 ```
 
 **Interpretación:**
@@ -302,22 +476,26 @@ public static double calculate(byte[] data) {
 **Función:** Representación de secciones PE con detección de anomalías.
 
 ```java
-public boolean isSuspicious() {
-    // Detectar secciones sospechosas
-    boolean highEntropy = entropy > 7.0;
-    boolean execWritable = isExecutable() && isWritable();
-    boolean lowCompression = (compressionRatio >= 0 && compressionRatio < 20);
+// Comprovació de sospita segons la entropia
+    public boolean isSuspicious() {
+        if (entropy > 7.0) return true;
 
-    return highEntropy || execWritable || lowCompression;
-}
+        boolean isExecutable = (characteristics & 0x20000000) != 0;
+        boolean isWritable = (characteristics & 0x80000000L) != 0;
+        if (isExecutable && isWritable) return true;
 
-// Colores en formato Hex.
-public String getEntropyColor() {
-    if (entropy < 3.0) return "#3498db";      // Azul
-    if (entropy < 5.0) return "#2ecc71";      // Verde
-    if (entropy < 7.0) return "#f39c12";      // Naranja
-    return "#e74c3c";                         // Rojo (Sospechoso)
-}
+        if (compressionRatio < 20.0) return true;
+
+        return false;
+    }
+
+    // Color segons entropia
+    public String getEntropyColor() {
+        if (entropy < 3.0) return "#0000FF";
+        if (entropy < 5.0) return "#00FF00";
+        if (entropy < 7.0) return "#FFA500";
+        return "#FF0000";
+    }
 ```
 
 **Características sospechosas:**
@@ -334,31 +512,17 @@ public String getEntropyColor() {
 **Función:** Interfaz gráfica con 3 pestañas de análisis.
 
 ```java
-private void buildUI() {
-    JTabbedPane tabbedPane = new JTabbedPane();
+public MainWindow() {
+        setTitle("MalHunter");
+        //Tamano predeterminado de la ventana ( en pixeles [ancho, alto] )
+        setSize(1200, 800);
+        //Cierra la ventana caso el user haga click en la "x" | ".EXIT_ON_CLOSE" cierra por completo
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        //Cierra la ventana en el medio de la pantalla -> "null" ( referencia al centro de la pantalla )
+        setLocationRelativeTo(null);
 
-    // Pestaña 1: Headers PE + Entropía
-    tabbedPane.addTab("PE Headers", buildPEHeadersPanel());
-
-    // Pestaña 2: Strings con búsqueda
-    tabbedPane.addTab("Strings", buildStringsPanel());
-
-    // Pestaña 3: Imports + MITRE ATT&CK
-    tabbedPane.addTab("Imports & TTPs", buildImportsPanel());
-}
-
-private void analyzeFile(File file) {
-    SwingWorker<PEInfo, Void> worker = new SwingWorker<>() {
-        protected PEInfo doInBackground() {
-            PEAnalyzer analyzer = new PEAnalyzer(file);
-            return analyzer.analyze(file);
-        }
-
-        protected void done() {
-            displayResults(get());
-        }
-    };
-    worker.execute();
+        createUI();
+    }
 }
 ```
 
