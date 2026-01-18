@@ -1,0 +1,1 @@
+En esta carpeta se encontraran las clases que componen funcionaes principales de analisis del programa principal.
