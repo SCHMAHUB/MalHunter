@@ -3,9 +3,9 @@ package analyzer;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import malware.model.ImportEntry;
-import malware.model.ImportEntry.FunctionInfo;
-import malware.model.PEInfo;
+import model.ImportEntry;
+import model.ImportEntry.FunctionInfo;
+import model.PEInfo;
 
 // Analizador de los imports
 public class ImportAnalyzer {
@@ -68,21 +68,39 @@ public class ImportAnalyzer {
         kernel32.addFunction("ReadFile", false, "Read from file", null, null);
         kernel32.addFunction("DeleteFile", false, "Delete file", null, null);
         kernel32.addFunction("CreateProcess", true, "Execute new process","Execution", "T1106 - Native API");
+        kernel32.addFunction("VirtualAlloc", true, "Allocate memory","Defense Evasion", "T1055 - Process Injection");
+        kernel32.addFunction("VirtualProtect", true, "Change memory protection","Defense Evasion", "T1055 - Process Injection");
+        kernel32.addFunction("CreateRemoteThread", true, "Code injection","Privilege Escalation", "T1055.001 - Dynamic-link Library Injection");
+        kernel32.addFunction("WriteProcessMemory", true, "Write to process memory","Defense Evasion", "T1055 - Process Injection");
+        kernel32.addFunction("LoadLibrary", true, "Load DLL","Defense Evasion", "T1055.001 - DLL Injection");
+        kernel32.addFunction("GetProcAddress", true, "Get function address","Defense Evasion", "T1027 - Obfuscated Files or Information");
+        kernel32.addFunction("Sleep", true, "Delay execution","Defense Evasion", "T1497 - Virtualization/Sandbox Evasion");
+        kernel32.addFunction("GetTickCount", true, "Get system time","Defense Evasion", "T1497 - Sandbox Evasion");
         DLL_CAPABILITIES.put("kernel32.dll", kernel32);
 
         // NTDLL.DLL 
         DLLCapability ntdll = new DLLCapability("ntdll.dll", "Low-level APIs", true);
-        ntdll.addFunction("NtCreateThread", true, "Create thread",
-                "Defense Evasion", "T1055 - Process Injection");
+        ntdll.addFunction("NtQuerySystemInformation", true, "Query system info","Discovery", "T1082 - System Information Discovery");
+        ntdll.addFunction("NtCreateThread", true, "Create thread","Defense Evasion", "T1055 - Process Injection");
+        ntdll.addFunction("NtWriteVirtualMemory", true, "Write memory","Defense Evasion", "T1055 - Process Injection");
+        ntdll.addFunction("NtAllocateVirtualMemory", true, "Allocate memory","Defense Evasion", "T1055 - Process Injection");
+        ntdll.addFunction("ZwUnmapViewOfSection", true, "Unmap memory section","Defense Evasion", "T1055.012 - Process Hollowing");
         DLL_CAPABILITIES.put("ntdll.dll", ntdll);
 
         // USER32.DL
         DLLCapability user32 = new DLLCapability("user32.dll", "User Interface", false);
         user32.addFunction("MessageBox", false, "Display message", null, null);
+        user32.addFunction("FindWindow", true, "Find window","Discovery", "T1010 - Application Window Discovery");
+        user32.addFunction("SetWindowsHookEx", true, "Install hook (keylogger)","Collection", "T1056.001 - Keylogging");
+        user32.addFunction("GetAsyncKeyState", true, "Get key state (keylogger)","Collection", "T1056.001 - Keylogging");
+        user32.addFunction("GetForegroundWindow", true, "Get active window","Collection", "T1056.001 - Keylogging");
         DLL_CAPABILITIES.put("user32.dll", user32);
 
         // ADVAPI32.DLL
         DLLCapability advapi32 = new DLLCapability("advapi32.dll", "Registry/Services", true);
+        advapi32.addFunction("RegOpenKey", false, "Open registry key", null, null);
+        advapi32.addFunction("RegSetValue", true, "Set registry value","Persistence", "T1547 - Boot or Logon Autostart Execution");
+        advapi32.addFunction("RegCreateKey", true, "Create registry key","Persistence", "T1547 - Registry Run Keys");
         advapi32.addFunction("CreateService", true, "Create service", "Persistence", "T1543.003 - Windows Service");
         advapi32.addFunction("StartService", true, "Start service", "Execution", "T1569.002 - Service Execution");
         DLL_CAPABILITIES.put("advapi32.dll", advapi32);
@@ -90,22 +108,34 @@ public class ImportAnalyzer {
         // WS2_32.DLL
         DLLCapability ws2_32 = new DLLCapability("ws2_32.dll", "Network Operations", true);
         ws2_32.addFunction("WSAStartup", true, "Initialize Winsock", "Command and Control", "T1071 - Application Layer Protocol");
+        ws2_32.addFunction("socket", true, "Create socket","Command and Control", "T1571 - Non-Standard Port");
+        ws2_32.addFunction("connect", true, "Connect to remote","Command and Control", "T1071 - Application Layer Protocol");
+        ws2_32.addFunction("send", true, "Send data","Exfiltration", "T1041 - Exfiltration Over C2 Channel");
+        ws2_32.addFunction("recv", true, "Receive data","Command and Control", "T1071 - Application Layer Protocol");
+        ws2_32.addFunction("bind", true, "Bind socket","Command and Control", "T1571 - Non-Standard Port");
+        ws2_32.addFunction("listen", true, "Listen for connections","Command and Control", "T1571 - Non-Standard Port");
         DLL_CAPABILITIES.put("ws2_32.dll", ws2_32);
 
         // WININET.DLL
         DLLCapability wininet = new DLLCapability("wininet.dll", "Internet Operations", true);
         wininet.addFunction("InternetOpen", true, "Initialize internet", "Command and Control", "T1071.001 - Web Protocols");
+        wininet.addFunction("InternetOpenUrl", true, "Open URL","Command and Control", "T1071.001 - Web Protocols");
+        wininet.addFunction("HttpOpenRequest", true, "HTTP request","Command and Control", "T1071.001 - Web Protocols");
+        wininet.addFunction("HttpSendRequest", true, "Send HTTP request","Command and Control", "T1071.001 - Web Protocols");
+        wininet.addFunction("InternetReadFile", true, "Read internet data","Command and Control", "T1105 - Ingress Tool Transfer");
         DLL_CAPABILITIES.put("wininet.dll", wininet);
 
         // URLMON.DLL
         DLLCapability urlmon = new DLLCapability("urlmon.dll", "URL Operations", true);
         urlmon.addFunction("URLDownloadToFile", true, "Download file from URL", "Command and Control", "T1105 - Ingress Tool Transfer");
+        urlmon.addFunction("URLDownloadToCacheFile", true, "Download to cache","Command and Control", "T1105 - Ingress Tool Transfer");
         DLL_CAPABILITIES.put("urlmon.dll", urlmon);
 
         // CRYPT32.DLL
         DLLCapability crypt32 = new DLLCapability("crypt32.dll", "Cryptography", true);
         crypt32.addFunction("CryptEncrypt", true, "Encrypt data", "Impact", "T1486 - Data Encrypted for Impact");
         crypt32.addFunction("CryptDecrypt", true, "Decrypt data", "Defense Evasion", "T1140 - Deobfuscate/Decode Files");
+        crypt32.addFunction("CryptAcquireContext", true, "Get crypto context","Defense Evasion", "T1027 - Obfuscated Files");
         DLL_CAPABILITIES.put("crypt32.dll", crypt32);
 
         // SHELL32.DLL 
@@ -126,6 +156,7 @@ public class ImportAnalyzer {
         msvcrt.addFunction("free", false, "Free memory", null, null);
         msvcrt.addFunction("system", true, "Execute command", "Execution", "T1059 - Command and Scripting Interpreter");
         DLL_CAPABILITIES.put("msvcrt.dll", msvcrt);
+
     }
 
     private static byte[] readFileBytes(File file) throws IOException {

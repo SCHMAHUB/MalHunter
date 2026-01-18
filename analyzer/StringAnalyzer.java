@@ -1,16 +1,87 @@
 package analyzer;
 
 import java.io.*;
-import java.nio.charset.StandardCharsets;
+import model.PEInfo;
+import model.StringEntry;
+
+import model.PEInfo;
 
 public class StringAnalyzer {
     private static final int MIN_STRING_LENGTH = 4;
 
     // Metodo para analizar los strings en un archivo binario
-    public static void analyze()throws IOException{}
+    public static void analyze(PEInfo peInfo) throws IOException {
+        byte[] fileData = readFileBytes(peInfo.getFile());
 
-    // Faltan las funciones para extraer los strings en ASCII y Unicode para poder completar el metodo analyze
-    // Para ello se necesita la peinfo de (PEInfo.java) para obtener la seccion .rdata del archivo PE que aun no esta termianada
+        extractASCIIStrings(fileData, peInfo);
+
+        extractUnicodeStrings(fileData, peInfo);
+    }
+
+    private static void extractASCIIStrings(byte[] data, PEInfo peInfo) {
+        StringBuilder current = new StringBuilder();
+        long startOffset = 0;
+
+        for (int i = 0; i < data.length; i++) {
+            byte b = data[i];
+
+            if (isPrintableASCII(b)) {
+                if (current.length() == 0) {
+                    startOffset = i;
+                }
+                current.append((char) b);
+            } else {
+                if (current.length() >= MIN_STRING_LENGTH) {
+                    peInfo.addString(new StringEntry(startOffset, current.toString(), "ASCII"));
+                }
+                current.setLength(0);
+            }
+        }
+
+        if (current.length() >= MIN_STRING_LENGTH) {
+            peInfo.addString(new StringEntry(startOffset, current.toString(), "ASCII"));
+        }
+    }
+
+    private static void extractUnicodeStrings(byte[] data, PEInfo peInfo) {
+        StringBuilder current = new StringBuilder();
+        long startOffset = 0;
+
+        for (int i = 0; i < data.length - 1; i += 2) {
+            int lowByte = data[i] & 0xFF;
+            int highByte = data[i + 1] & 0xFF;
+
+            // Unicode UTF-16 LE: highByte debe ser 0 para caracteres ASCII
+            if (highByte == 0 && isPrintableASCII((byte) lowByte)) {
+                if (current.length() == 0) {
+                    startOffset = i;
+                }
+                current.append((char) lowByte);
+            } else {
+                if (current.length() >= MIN_STRING_LENGTH) {
+                    String str = current.toString();
+                    // Evitar duplicados con ASCII
+                    boolean isDuplicate = peInfo.getStrings().stream()
+                            .anyMatch(s -> s.getValue().equals(str));
+
+                    if (!isDuplicate) {
+                        peInfo.addString(new StringEntry(startOffset, str, "Unicode"));
+                    }
+                }
+                current.setLength(0);
+            }
+        }
+
+        if (current.length() >= MIN_STRING_LENGTH) {
+            String str = current.toString();
+            boolean isDuplicate = peInfo.getStrings().stream()
+                    .anyMatch(s -> s.getValue().equals(str));
+
+            if (!isDuplicate) {
+                peInfo.addString(new StringEntry(startOffset, str, "Unicode"));
+            }
+        }
+    }
 
     // Metodo para verificar si un byte es un caracter ASCII imprimible
     private static boolean isPrintableASCII(byte b) {
